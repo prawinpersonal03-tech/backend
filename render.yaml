@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: whisper-backend
+    env: python
+    plan: free
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn whisper_server:app --preload --timeout 200 --bind 0.0.0.0:$PORT
+    envVars: []
+    autoDeploy: true
