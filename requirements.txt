@@ -1,0 +1,9 @@
+flask
+flask-cors
+openai-whisper
+deep-translator
+langdetect
+torch
+torchaudio
+ffmpeg-python
+
