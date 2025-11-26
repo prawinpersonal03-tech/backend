@@ -1,23 +1,37 @@
-# Use Python base image
-FROM python:3.10-slim
+# Use official PyTorch CPU image (already contains torch + torchaudio)
+FROM pytorch/pytorch:2.2.0-cpu
 
-# Install system packages (FFmpeg required for Whisper)
-RUN apt-get update && apt-get install -y ffmpeg git && apt-get clean
+# Avoid interactive prompts, install ffmpeg + libav* development packages + git
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    ffmpeg \
+    git \
+    libavdevice-dev \
+    libavfilter-dev \
+    libavformat-dev \
+    libavcodec-dev \
+    libswresample-dev \
+    libswscale-dev \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/*
 
-# Create working directory
+# Set working dir
 WORKDIR /app
 
-# Copy requirements first (better caching)
+# Copy requirements first for caching benefit
 COPY requirements.txt .
 
-# Install Python packages
-RUN pip install --no-cache-dir -r requirements.txt
+# Ensure pip tooling is up-to-date and install Python deps EXCEPT torch/torchaudio
+# (The base image already contains torch and torchaudio. We filter them out from requirements.)
+RUN python -m pip install --upgrade pip setuptools wheel \
+  && sed '/^torch/Id;/^torchaudio/Id' requirements.txt > /tmp/req_trimmed.txt \
+  && pip install --no-cache-dir -r /tmp/req_trimmed.txt \
+  && pip install --no-cache-dir gunicorn
 
-# Copy all backend files
+# Copy app sources
 COPY . .
 
-# Expose the port Cloud Run will use
+# Expose port Cloud Run expects
 EXPOSE 8080
 
-# Start the Flask app
-CMD ["python", "whisper_server.py"]
+# Run with gunicorn (production server). Increase timeout for long transcriptions.
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "whisper_server:app", "--timeout", "300", "--workers", "1", "--threads", "2"]
