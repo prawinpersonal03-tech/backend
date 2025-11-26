@@ -1,37 +1,34 @@
-# Use official PyTorch CPU image (already contains torch + torchaudio)
-FROM pytorch/pytorch:2.2.0-cpu
+# Use a slim Python base
+FROM python:3.10-slim
 
-# Avoid interactive prompts, install ffmpeg + libav* development packages + git
+# Install system deps (ffmpeg + codecs + libs) and git
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     ffmpeg \
     git \
-    libavdevice-dev \
-    libavfilter-dev \
-    libavformat-dev \
-    libavcodec-dev \
-    libswresample-dev \
-    libswscale-dev \
+    libsndfile1 \
+    libavcodec-extra \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 
-# Set working dir
+# Set working directory
 WORKDIR /app
 
-# Copy requirements first for caching benefit
+# Copy requirements
 COPY requirements.txt .
 
-# Ensure pip tooling is up-to-date and install Python deps EXCEPT torch/torchaudio
-# (The base image already contains torch and torchaudio. We filter them out from requirements.)
+# Upgrade pip and install PyTorch CPU wheels from the official PyTorch wheel index,
+# then install remaining Python dependencies (we remove torch/torchaudio from reqs to avoid duplicate install).
 RUN python -m pip install --upgrade pip setuptools wheel \
-  && sed '/^torch/Id;/^torchaudio/Id' requirements.txt > /tmp/req_trimmed.txt \
-  && pip install --no-cache-dir -r /tmp/req_trimmed.txt \
-  && pip install --no-cache-dir gunicorn
+ && pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu torch torchaudio \
+ && sed '/^torch/Id;/^torchaudio/Id' requirements.txt > /tmp/req_trimmed.txt \
+ && pip install --no-cache-dir -r /tmp/req_trimmed.txt \
+ && pip install --no-cache-dir gunicorn
 
-# Copy app sources
+# Copy app code
 COPY . .
 
 # Expose port Cloud Run expects
 EXPOSE 8080
 
-# Run with gunicorn (production server). Increase timeout for long transcriptions.
+# Use gunicorn (production-ready) and allow longer timeout for long audio jobs
 CMD ["gunicorn", "--bind", "0.0.0.0:8080", "whisper_server:app", "--timeout", "300", "--workers", "1", "--threads", "2"]
